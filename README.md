@@ -8,7 +8,7 @@ Ist man innerhalb des Radius, gilt das Bild „Zuhause“, ist man außerhalb, d
 | | Android | iPhone (iOS) |
 |---|---|---|
 | Home-Position + Radius | ja | ja |
-| Standort im Hintergrund prüfen | ja (WorkManager, ca. alle 15 min) | ja (Geofencing) |
+| Standort im Hintergrund prüfen | ja (natives Geofencing, zusätzlich WorkManager ca. alle 15 min) | ja (Geofencing) |
 | **Systemhintergrund automatisch ändern** | **ja** (WallpaperManager) | **nein**, Apple erlaubt das keiner App |
 
 **iPhone-Workaround:** In der Kurzbefehle-App eine persönliche Automation
@@ -57,12 +57,12 @@ flutter run
 - `lib/screens/home_screen.dart` – Oberfläche: Home setzen, Radius, zwei Bilder, „Jetzt prüfen“
 - `lib/services/settings.dart` – Speichern der Einstellungen
 - `lib/services/zone_checker.dart` – Distanz berechnen, bei Zonenwechsel Wallpaper setzen
-- `lib/services/background.dart` – periodischer Hintergrundjob (Android)
+- `lib/services/background.dart` – periodischer Hintergrundjob (Android, Reserve)
+- `lib/services/geofence.dart` + `android/.../NoSwanGeofence.kt` – natives Geofencing: Android meldet Betreten/Verlassen, `GeofenceReceiver` setzt das Bild direkt, `BootReceiver` registriert nach Neustart neu
 
 ## Nächste Schritte
 
 1. Auf einem Android-Gerät testen (`flutter run`).
 2. Home-Position zusätzlich per Karte wählbar machen (z. B. `flutter_map`).
-3. Schnellere Reaktion: echtes Geofencing statt 15-min-Takt.
 4. iOS: Einrichtungsassistent für die Kurzbefehle-Automation.
 5. App-Icon, Name und Store-Veröffentlichung.

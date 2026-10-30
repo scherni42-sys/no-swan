@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/geofence.dart';
 import '../services/settings.dart';
 import '../services/zone_checker.dart';
 
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _msg;
   bool _alwaysGranted = false;
   bool _batteryUnrestricted = false;
+  String? _fenceError; // null = Geofence aktiv
 
   @override
   void initState() {
@@ -48,11 +50,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final battery = Platform.isAndroid
         ? await Permission.ignoreBatteryOptimizations.isGranted
         : true;
+    // Geofence bei jedem Laden auffrischen (Android kann ihn z. B. beim
+    // Ausschalten des Standorts verwerfen).
+    final fence = Platform.isAndroid ? await NativeGeofence.sync() : null;
     if (!mounted) return;
     setState(() {
       _s = s;
       _alwaysGranted = always;
       _batteryUnrestricted = battery;
+      _fenceError = fence;
     });
   }
 
@@ -111,9 +117,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 action: 'Ausschalten',
                 onTap: _requestBattery,
               ),
+            if (Platform.isAndroid)
+              _checkRow(
+                ok: _fenceError == null,
+                okText: 'Geofence aktiv: Wechsel kommt automatisch',
+                badText: _fenceError ?? '',
+                action: 'Erneut',
+                onTap: _reload,
+              ),
             const SizedBox(height: 4),
-            const Text('Im Hintergrund wird etwa alle 15 Minuten geprüft, '
-                'bei ruhendem Handy kann Android das verzögern.',
+            const Text('Android meldet das Betreten und Verlassen des Radius '
+                'selbst, meist innerhalb weniger Minuten. Zusätzlich wird etwa '
+                'alle 15 Minuten geprüft.',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),

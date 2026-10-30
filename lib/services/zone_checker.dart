@@ -23,10 +23,14 @@ class ZoneChecker {
         ),
       );
     } catch (e) {
-      // Ohne frischen Fix auf die letzte bekannte Position zurückfallen.
+      // Ohne frischen Fix auf die letzte bekannte Position zurückfallen –
+      // aber nur, wenn sie aktuell ist. Eine alte Position (z. B. von zuhause)
+      // würde sonst den Zonenwechsel verschlucken.
       final last = await Geolocator.getLastKnownPosition();
-      if (last == null) {
-        await Settings.saveCheck(source: source, error: 'Kein Standort: $e');
+      final fresh = last != null &&
+          DateTime.now().difference(last.timestamp) < const Duration(minutes: 10);
+      if (!fresh) {
+        await Settings.saveCheck(source: source, error: 'Kein aktueller Standort: $e');
         rethrow;
       }
       pos = last;

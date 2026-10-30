@@ -69,3 +69,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Natives Geofencing (Betreten/Verlassen des Home-Radius)
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+}
