@@ -176,11 +176,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (picked == null) return;
     final dir = await getApplicationDocumentsDirectory();
-    final target = '${dir.path}/${home ? 'home' : 'away'}.jpg';
+    // Neuer Dateiname pro Auswahl, sonst zeigen Vorschau und Cache das alte Bild.
+    final ext = picked.path.contains('.') ? picked.path.split('.').last : 'jpg';
+    final target = '${dir.path}/${home ? 'home' : 'away'}_'
+        '${DateTime.now().millisecondsSinceEpoch}.$ext';
     await File(picked.path).copy(target);
-    // Gleicher Dateiname: Bild-Cache leeren, damit die Vorschau aktualisiert.
-    await FileImage(File(target)).evict();
+    final old = home ? _s.imageHome : _s.imageAway;
     await Settings.saveImage(home: home, path: target);
+    if (old != null && old != target) {
+      try {
+        await File(old).delete();
+      } catch (_) {}
+    }
     await _reload();
     if (_s.hasHome) await _check();
   }
