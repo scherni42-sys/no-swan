@@ -10,28 +10,50 @@ enum Zone { home, away }
 /// Prüft die aktuelle Position gegen Home + Radius und setzt bei einem
 /// Wechsel das passende Hintergrundbild (nur Android möglich).
 class ZoneChecker {
-  static Future<Zone?> checkAndApply() async {
+  static Future<Zone?> checkAndApply({String source = 'app', bool force = false}) async {
     final s = await Settings.load();
     if (!s.hasHome) return null;
 
-    final pos = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-    );
+    Position pos;
+    try {
+      pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 30),
+        ),
+      );
+    } catch (e) {
+      // Ohne frischen Fix auf die letzte bekannte Position zurückfallen.
+      final last = await Geolocator.getLastKnownPosition();
+      if (last == null) {
+        await Settings.saveCheck(source: source, error: 'Kein Standort: $e');
+        rethrow;
+      }
+      pos = last;
+    }
     final distance = Geolocator.distanceBetween(
       s.homeLat!, s.homeLng!, pos.latitude, pos.longitude,
     );
     final zone = distance <= s.radiusMeters ? Zone.home : Zone.away;
 
     // Nur bei Zonenwechsel das Bild setzen (spart Akku, kein Flackern).
-    if (s.lastState != zone.name) {
-      final applied = await _applyWallpaper(zone == Zone.home ? s.imageHome : s.imageAway);
-      if (applied) await Settings.saveLastState(zone.name);
+    String? error;
+    if (force || s.lastState != zone.name) {
+      final path = zone == Zone.home ? s.imageHome : s.imageAway;
+      if (path == null) {
+        error = 'Kein Bild für „${zone == Zone.home ? 'Zuhause' : 'Unterwegs'}“ gewählt.';
+      } else {
+        error = await _applyWallpaper(path);
+        if (error == null) await Settings.saveLastState(zone.name);
+      }
     }
+    await Settings.saveCheck(source: source, distance: distance, error: error);
     return zone;
   }
 
-  static Future<bool> _applyWallpaper(String? path) async {
-    if (path == null || !Platform.isAndroid) return false;
+  /// Setzt das Bild und liefert null bei Erfolg, sonst eine Fehlermeldung.
+  static Future<String?> _applyWallpaper(String path) async {
+    if (!Platform.isAndroid) return 'Nur auf Android möglich.';
     final result = await AsyncWallpaper.applyWallpaper(
       StaticWallpaperRequest(
         source: WallpaperSource.filePath(path),
@@ -40,6 +62,8 @@ class ZoneChecker {
         strategy: WallpaperApplyStrategy.direct,
       ),
     );
-    return result.status == WallpaperOperationStatus.applied;
+    if (result.status == WallpaperOperationStatus.applied) return null;
+    return 'Hintergrundbild nicht gesetzt (${result.status.name}): '
+        '${result.errorMessage ?? result.errorCode ?? 'unbekannt'}';
   }
 }

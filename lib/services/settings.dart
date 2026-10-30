@@ -8,6 +8,10 @@ class Settings {
   static const _kImgHome = 'img_home';
   static const _kImgAway = 'img_away';
   static const _kLastState = 'last_state'; // 'home' | 'away'
+  static const _kLastCheck = 'last_check'; // ms seit Epoch
+  static const _kLastDistance = 'last_distance';
+  static const _kLastSource = 'last_source'; // 'app' | 'hintergrund'
+  static const _kLastError = 'last_error';
 
   final double? homeLat;
   final double? homeLng;
@@ -15,6 +19,10 @@ class Settings {
   final String? imageHome;
   final String? imageAway;
   final String? lastState;
+  final DateTime? lastCheck;
+  final double? lastDistance;
+  final String? lastSource;
+  final String? lastError;
 
   const Settings({
     this.homeLat,
@@ -23,6 +31,10 @@ class Settings {
     this.imageHome,
     this.imageAway,
     this.lastState,
+    this.lastCheck,
+    this.lastDistance,
+    this.lastSource,
+    this.lastError,
   });
 
   bool get hasHome => homeLat != null && homeLng != null;
@@ -37,6 +49,12 @@ class Settings {
       imageHome: p.getString(_kImgHome),
       imageAway: p.getString(_kImgAway),
       lastState: p.getString(_kLastState),
+      lastCheck: p.getInt(_kLastCheck) == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(p.getInt(_kLastCheck)!),
+      lastDistance: p.getDouble(_kLastDistance),
+      lastSource: p.getString(_kLastSource),
+      lastError: p.getString(_kLastError),
     );
   }
 
@@ -62,5 +80,23 @@ class Settings {
   static Future<void> saveLastState(String state) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_kLastState, state);
+  }
+
+  /// Protokolliert jede Prüfung, damit die App anzeigen kann, ob der
+  /// Hintergrundjob wirklich läuft.
+  static Future<void> saveCheck({
+    required String source,
+    double? distance,
+    String? error,
+  }) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kLastCheck, DateTime.now().millisecondsSinceEpoch);
+    await p.setString(_kLastSource, source);
+    if (distance != null) await p.setDouble(_kLastDistance, distance);
+    if (error == null) {
+      await p.remove(_kLastError);
+    } else {
+      await p.setString(_kLastError, error);
+    }
   }
 }

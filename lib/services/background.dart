@@ -10,7 +10,7 @@ void callbackDispatcher() {
   Workmanager().executeTask((task, _) async {
     WidgetsFlutterBinding.ensureInitialized();
     try {
-      await ZoneChecker.checkAndApply();
+      await ZoneChecker.checkAndApply(source: 'hintergrund');
     } catch (_) {
       // z. B. keine Standortberechtigung im Hintergrund – beim nächsten Lauf erneut.
     }

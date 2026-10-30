@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../services/settings.dart';
 import '../services/zone_checker.dart';
@@ -15,21 +16,125 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Settings _s = const Settings();
   Zone? _zone;
   String? _msg;
+  bool _alwaysGranted = false;
+  bool _batteryUnrestricted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _reload();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Nach Rückkehr aus den Einstellungen oder dem Hintergrund neu laden.
+    if (state == AppLifecycleState.resumed) _reload();
   }
 
   Future<void> _reload() async {
     final s = await Settings.load();
-    setState(() => _s = s);
+    final always = await Permission.locationAlways.isGranted;
+    final battery = Platform.isAndroid
+        ? await Permission.ignoreBatteryOptimizations.isGranted
+        : true;
+    if (!mounted) return;
+    setState(() {
+      _s = s;
+      _alwaysGranted = always;
+      _batteryUnrestricted = battery;
+    });
   }
+
+  Future<void> _requestAlways() async {
+    if (!await _ensurePermission()) return;
+    final status = await Permission.locationAlways.request();
+    if (!status.isGranted) await openAppSettings();
+    await _reload();
+  }
+
+  Future<void> _requestBattery() async {
+    await Permission.ignoreBatteryOptimizations.request();
+    await _reload();
+  }
+
+  String _fmtTime(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final now = DateTime.now();
+    final sameDay = t.year == now.year && t.month == now.month && t.day == now.day;
+    final time = '${two(t.hour)}:${two(t.minute)} Uhr';
+    return sameDay ? 'heute $time' : '${two(t.day)}.${two(t.month)}. $time';
+  }
+
+  Widget _statusCard() {
+    final c = _s.lastCheck;
+    final d = _s.lastDistance;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Status', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(c == null
+                ? 'Noch keine Prüfung.'
+                : 'Letzte Prüfung: ${_fmtTime(c)} (${_s.lastSource ?? 'app'})'),
+            if (d != null)
+              Text('Entfernung zu Home: ${d.round()} m → '
+                  '${d <= _s.radiusMeters ? 'innerhalb' : 'außerhalb'} des Radius'),
+            if (_s.lastError != null)
+              Text(_s.lastError!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 8),
+            _checkRow(
+              ok: _alwaysGranted,
+              okText: 'Standort: immer erlaubt',
+              badText: 'Standort nur bei Nutzung erlaubt',
+              action: 'Immer erlauben',
+              onTap: _requestAlways,
+            ),
+            if (Platform.isAndroid)
+              _checkRow(
+                ok: _batteryUnrestricted,
+                okText: 'Akku-Optimierung aus',
+                badText: 'Akku-Optimierung kann Prüfungen verhindern',
+                action: 'Ausschalten',
+                onTap: _requestBattery,
+              ),
+            const SizedBox(height: 4),
+            const Text('Im Hintergrund wird etwa alle 15 Minuten geprüft, '
+                'bei ruhendem Handy kann Android das verzögern.',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _checkRow({
+    required bool ok,
+    required String okText,
+    required String badText,
+    required String action,
+    required VoidCallback onTap,
+  }) =>
+      Row(children: [
+        Icon(ok ? Icons.check_circle : Icons.warning_amber,
+            color: ok ? Colors.green : Colors.orange, size: 20),
+        const SizedBox(width: 8),
+        Expanded(child: Text(ok ? okText : badText)),
+        if (!ok) TextButton(onPressed: onTap, child: Text(action)),
+      ]);
 
   Future<bool> _ensurePermission() async {
     var perm = await Geolocator.checkPermission();
@@ -40,10 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _msg = 'Standortberechtigung fehlt.');
       return false;
     }
-    if (perm == LocationPermission.whileInUse) {
-      setState(() => _msg = 'Für den Wechsel im Hintergrund bitte in den '
-          'Einstellungen „Standort: Immer erlauben“ wählen.');
-    }
+    setState(() => _msg = null);
     return true;
   }
 
@@ -61,14 +163,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final dir = await getApplicationDocumentsDirectory();
     final target = '${dir.path}/${home ? 'home' : 'away'}.jpg';
     await File(picked.path).copy(target);
+    // Gleicher Dateiname: Bild-Cache leeren, damit die Vorschau aktualisiert.
+    await FileImage(File(target)).evict();
     await Settings.saveImage(home: home, path: target);
     await _reload();
+    if (_s.hasHome) await _check();
   }
 
-  Future<void> _check() async {
+  Future<void> _check({bool force = false}) async {
     if (!await _ensurePermission()) return;
-    final z = await ZoneChecker.checkAndApply();
-    setState(() => _zone = z);
+    try {
+      final z = await ZoneChecker.checkAndApply(force: force);
+      setState(() => _zone = z);
+    } catch (e) {
+      setState(() => _msg = 'Standort konnte nicht ermittelt werden.');
+    }
+    await _reload();
   }
 
   Widget _imageTile(String label, String? path, bool home) => Expanded(
@@ -125,6 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onSelectionChanged: (v) async {
               await Settings.saveRadius(v.first);
               await _reload();
+              await _check();
             },
           ),
           const SizedBox(height: 16),
@@ -135,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ]),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: _check,
+            onPressed: () => _check(force: true),
             icon: const Icon(Icons.my_location),
             label: const Text('Jetzt prüfen'),
           ),
@@ -146,6 +257,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? 'Du bist innerhalb des Radius.'
                   : 'Du bist außerhalb des Radius.'),
             ),
+          const SizedBox(height: 16),
+          _statusCard(),
           if (Platform.isIOS)
             const Padding(
               padding: EdgeInsets.only(top: 16),
