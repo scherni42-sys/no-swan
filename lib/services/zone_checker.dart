@@ -56,18 +56,24 @@ class ZoneChecker {
   }
 
   /// Setzt das Bild und liefert null bei Erfolg, sonst eine Fehlermeldung.
+  /// Start- und Sperrbildschirm getrennt, weil manche Hersteller (z. B.
+  /// Samsung) bei „beide“ nur einen Bildschirm übernehmen.
   static Future<String?> _applyWallpaper(String path) async {
     if (!Platform.isAndroid) return 'Nur auf Android möglich.';
-    final result = await AsyncWallpaper.applyWallpaper(
-      StaticWallpaperRequest(
-        source: WallpaperSource.filePath(path),
-        target: WallpaperTarget.both,
-        scaleMode: WallpaperScaleMode.centerCrop,
-        strategy: WallpaperApplyStrategy.direct,
-      ),
-    );
-    if (result.status == WallpaperOperationStatus.applied) return null;
-    return 'Hintergrundbild nicht gesetzt (${result.status.name}): '
-        '${result.errorMessage ?? result.errorCode ?? 'unbekannt'}';
+    for (final target in [WallpaperTarget.home, WallpaperTarget.lock]) {
+      final result = await AsyncWallpaper.applyWallpaper(
+        StaticWallpaperRequest(
+          source: WallpaperSource.filePath(path),
+          target: target,
+          scaleMode: WallpaperScaleMode.centerCrop,
+          strategy: WallpaperApplyStrategy.direct,
+        ),
+      );
+      if (result.status != WallpaperOperationStatus.applied) {
+        return 'Hintergrundbild (${target.name}) nicht gesetzt (${result.status.name}): '
+            '${result.errorMessage ?? result.errorCode ?? 'unbekannt'}';
+      }
+    }
+    return null;
   }
 }
