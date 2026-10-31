@@ -151,10 +151,11 @@ object NoSwanGeofence {
         } else {
             try {
                 val bmp = loadCropped(ctx, path)
-                WallpaperManager.getInstance(ctx).setBitmap(
-                    bmp, null, true,
-                    WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK,
-                )
+                // Getrennt setzen: Manche Hersteller (z. B. Samsung) übernehmen
+                // bei kombinierten Flags nur einen der beiden Bildschirme.
+                val wm = WallpaperManager.getInstance(ctx)
+                wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_SYSTEM)
+                wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_LOCK)
                 bmp.recycle()
             } catch (e: Exception) {
                 error = "Hintergrundbild nicht gesetzt: ${e.message ?: e.javaClass.simpleName}"
