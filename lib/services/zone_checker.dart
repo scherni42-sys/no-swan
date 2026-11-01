@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:async_wallpaper/async_wallpaper.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'settings.dart';
@@ -41,8 +41,11 @@ class ZoneChecker {
     final zone = distance <= s.radiusMeters ? Zone.home : Zone.away;
 
     // Nur bei Zonenwechsel das Bild setzen (spart Akku, kein Flackern).
+    // Im Hintergrund-Isolate gibt es den nativen Kanal nicht; dort übernimmt
+    // das native Geofencing den Wechsel, hier wird nur protokolliert.
+    final canApply = source != 'hintergrund';
     String? error;
-    if (force || s.lastState != zone.name) {
+    if (canApply && (force || s.lastState != zone.name)) {
       final path = zone == Zone.home ? s.imageHome : s.imageAway;
       if (path == null) {
         error = 'Kein Bild für „${zone == Zone.home ? 'Zuhause' : 'Unterwegs'}“ gewählt.';
@@ -55,25 +58,18 @@ class ZoneChecker {
     return zone;
   }
 
-  /// Setzt das Bild und liefert null bei Erfolg, sonst eine Fehlermeldung.
-  /// Start- und Sperrbildschirm getrennt, weil manche Hersteller (z. B.
-  /// Samsung) bei „beide“ nur einen Bildschirm übernehmen.
+  static const _channel = MethodChannel('de.noswan/geofence');
+
+  /// Setzt das Bild nativ (gleicher Weg wie das Geofencing) und prüft, ob
+  /// das System es übernommen hat. Liefert null bei Erfolg, sonst den Fehler.
   static Future<String?> _applyWallpaper(String path) async {
     if (!Platform.isAndroid) return 'Nur auf Android möglich.';
-    for (final target in [WallpaperTarget.home, WallpaperTarget.lock]) {
-      final result = await AsyncWallpaper.applyWallpaper(
-        StaticWallpaperRequest(
-          source: WallpaperSource.filePath(path),
-          target: target,
-          scaleMode: WallpaperScaleMode.centerCrop,
-          strategy: WallpaperApplyStrategy.direct,
-        ),
-      );
-      if (result.status != WallpaperOperationStatus.applied) {
-        return 'Hintergrundbild (${target.name}) nicht gesetzt (${result.status.name}): '
-            '${result.errorMessage ?? result.errorCode ?? 'unbekannt'}';
-      }
+    try {
+      return await _channel.invokeMethod<String>('setWallpaper', {'path': path});
+    } on PlatformException catch (e) {
+      return 'Hintergrundbild nicht gesetzt: ${e.message}';
+    } on MissingPluginException {
+      return 'Hintergrundbild-Funktion nicht verfügbar.';
     }
-    return null;
   }
 }

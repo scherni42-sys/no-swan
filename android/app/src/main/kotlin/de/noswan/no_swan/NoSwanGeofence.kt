@@ -149,17 +149,7 @@ object NoSwanGeofence {
         if (path == null || !File(path).exists()) {
             error = "Kein Bild für „${if (zone == "home") "Zuhause" else "Unterwegs"}“ gewählt."
         } else {
-            try {
-                val bmp = loadCropped(ctx, path)
-                // Getrennt setzen: Manche Hersteller (z. B. Samsung) übernehmen
-                // bei kombinierten Flags nur einen der beiden Bildschirme.
-                val wm = WallpaperManager.getInstance(ctx)
-                wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_SYSTEM)
-                wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_LOCK)
-                bmp.recycle()
-            } catch (e: Exception) {
-                error = "Hintergrundbild nicht gesetzt: ${e.message ?: e.javaClass.simpleName}"
-            }
+            error = setWallpaperVerified(ctx, path)
         }
         val ed = fp.edit()
             .putLong("flutter.last_check", System.currentTimeMillis())
@@ -170,6 +160,61 @@ object NoSwanGeofence {
             ed.putString("flutter.last_error", error)
         }
         ed.commit()
+    }
+
+    /**
+     * Setzt Start- und Sperrbildschirm und prüft anhand der Wallpaper-ID, ob
+     * das System das Bild wirklich übernommen hat. Samsung meldet teils
+     * Erfolg, ohne den Startbildschirm zu ändern; dann folgen Ausweichwege.
+     * Liefert null bei Erfolg, sonst eine Fehlermeldung mit Diagnose.
+     */
+    fun setWallpaperVerified(ctx: Context, path: String): String? {
+        val wm = WallpaperManager.getInstance(ctx)
+        if (!wm.isWallpaperSupported) return "Hintergrundbilder werden nicht unterstützt."
+        if (!wm.isSetWallpaperAllowed) return "Hintergrundbild ändern ist auf diesem Gerät gesperrt."
+        return try {
+            val bmp = loadCropped(ctx, path)
+            val sysBefore = wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM)
+            val lockBefore = wm.getWallpaperId(WallpaperManager.FLAG_LOCK)
+            val tried = mutableListOf<String>()
+
+            // 1. Getrennt pro Bildschirm.
+            wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_SYSTEM)
+            wm.setBitmap(bmp, null, true, WallpaperManager.FLAG_LOCK)
+            tried += "getrennt"
+
+            // 2. Kombiniert, falls der Startbildschirm unverändert blieb.
+            if (wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM) == sysBefore) {
+                wm.setBitmap(bmp, null, true,
+                    WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK)
+                tried += "kombiniert"
+            }
+            // 3. Klassische API ohne Flags.
+            if (wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM) == sysBefore) {
+                @Suppress("DEPRECATION")
+                wm.setBitmap(bmp)
+                tried += "klassisch"
+            }
+            // 4. Als Datenstrom statt Bitmap.
+            if (wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM) == sysBefore) {
+                File(path).inputStream().use {
+                    wm.setStream(it, null, true, WallpaperManager.FLAG_SYSTEM)
+                }
+                tried += "Datei"
+            }
+            bmp.recycle()
+
+            val sysAfter = wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM)
+            val lockAfter = wm.getWallpaperId(WallpaperManager.FLAG_LOCK)
+            if (sysAfter == sysBefore) {
+                "Startbildschirm unverändert (ID $sysBefore→$sysAfter, Sperr $lockBefore→$lockAfter, " +
+                    "Versuche: ${tried.joinToString()}, ${Build.MANUFACTURER} Android ${Build.VERSION.RELEASE})"
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            "Hintergrundbild nicht gesetzt: ${e.message ?: e.javaClass.simpleName}"
+        }
     }
 
     /** Lädt das Bild speicherschonend, dreht es laut EXIF und schneidet es mittig aufs Display zu. */

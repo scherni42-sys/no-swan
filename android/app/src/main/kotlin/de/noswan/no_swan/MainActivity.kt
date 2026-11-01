@@ -26,6 +26,18 @@ class MainActivity : FlutterActivity() {
                             result.success("Geofence-Fehler: ${e.message}")
                         }
                     }
+                    "setWallpaper" -> {
+                        val path = call.argument<String>("path")
+                        if (path == null) {
+                            result.success("Kein Bild angegeben.")
+                        } else {
+                            // Bild dekodieren und setzen dauert: nicht im UI-Thread.
+                            Thread {
+                                val error = NoSwanGeofence.setWallpaperVerified(applicationContext, path)
+                                runOnUiThread { result.success(error) }
+                            }.start()
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
